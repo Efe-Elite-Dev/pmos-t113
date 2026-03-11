@@ -1,4 +1,4 @@
-name: Build postmarketOS for goyavewifi (Fixed GitLab Source)
+name: Build postmarketOS for goyavewifi (Fixed Init Flow)
 
 on:
   push:
@@ -17,19 +17,26 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pmbootstrap from NEW Source
+      - name: Install pmbootstrap from Source
         run: |
-          # Yeni GitLab adresinden çekiyoruz
           git clone https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git
           cd pmbootstrap
           pip install .
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Initialize pmbootstrap
+      - name: Initialize pmbootstrap (Fixed Order)
         run: |
-          # pmbootstrap init artık çalışma dizinini ilk başta soruyor
+          # Yeni pmbootstrap sürümünde soru sırası:
+          # 1. Work path
+          # 2. Pmaports path (Enter ile default bırakıyoruz)
+          # 3. Release channel
+          # 4. Vendor
+          # 5. Device
+          # 6. User interface
+          
           pmbootstrap init <<EOF
           /home/runner/work/pmbootstrap_work
+          
           edge
           samsung
           goyavewifi
@@ -38,6 +45,7 @@ jobs:
 
       - name: Inject Custom Configurations
         run: |
+          # Önce paketleri yapılandır
           pmbootstrap config extra_packages postmarketos-base-downstream,soc-sprd-audio-sc8830,alsa-utils,nano
 
           # 1. X11 Rotasyon ayarı
@@ -54,12 +62,13 @@ jobs:
 
       - name: Build and Export Image
         run: |
-          # EMMC 8GB olduğu için export şart demiştin
-          pmbootstrap install --no-fsprogs
+          # Cihazın şifresini boş bırakmak veya basit bir şey yapmak gerekebilir
+          # Otomatik kurulum için -y ve --password argümanı eklendi
+          pmbootstrap install --no-fsprogs --password=1234
           pmbootstrap export
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pmos-goyavewifi-fixed
+          name: pmos-goyavewifi-v2
           path: /tmp/postmarketOS-export/
