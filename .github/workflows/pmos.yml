@@ -1,4 +1,4 @@
-name: Build postmarketOS for goyavewifi (Force Config)
+name: Build postmarketOS for goyavewifi
 
 on:
   push:
@@ -17,53 +17,48 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pmbootstrap from Source
+      - name: Install pmbootstrap
         run: |
           git clone https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git
           cd pmbootstrap
           pip install .
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Configure and Init pmbootstrap
+      - name: Initialize pmbootstrap (Interactive Flow Fix)
         run: |
-          # 1. Çalışma dizinlerini oluştur
-          mkdir -p /home/runner/work/pmbootstrap_work
+          # Görsellerindeki sıraya göre cevapları dizdik:
+          # 1. Work Path, 2. Pmaports (Boş), 3. Channel (edge), 4. Vendor (samsung), 5. Device (goyavewifi)
+          pmbootstrap init <<EOF
+          /home/runner/work/pmbootstrap_work
           
-          # 2. Ayarları manuel olarak setle (Soru sormasını engeller)
-          pmbootstrap config work /home/runner/work/pmbootstrap_work
-          pmbootstrap config jobs 4
-          pmbootstrap config channel edge
-          pmbootstrap config device samsung-goyavewifi
+          edge
+          samsung
+          goyavewifi
+          xfce4
+          EOF
+
+      - name: Inject Device Fixes
+        run: |
+          # X11, PulseAudio ve Dokunmatik ayarlarını build öncesi içeri basıyoruz
           pmbootstrap config extra_packages postmarketos-base-downstream,soc-sprd-audio-sc8830,alsa-utils,nano
           
-          # 3. UI olarak XFCE4 seç (Logda console/systemd hatasını önlemek için)
-          pmbootstrap config ui xfce4
-          
-          # 4. Init işlemini interaktif olmayan modda çalıştır
-          pmbootstrap -y init
-
-      - name: Inject Device Customizations
-        run: |
-          # X11 Rotasyon ayarı
           pmbootstrap chroot -r -- ash -c "mkdir -p /etc/X11/xorg.conf.d/ && printf 'Section \"Device\"\n    Identifier \"LCD\"\n    Driver \"fbdev\"\n    Option \"Rotate\" \"CCW\"\nEndSection' > /etc/X11/xorg.conf.d/00-fbdev-rotate-CCW.conf"
-
-          # PulseAudio tsched fix
           pmbootstrap chroot -r -- sed -i 's/load-module module-udev-detect/load-module module-udev-detect tsched=0/g' /etc/pulse/default.pa
-
-          # Udev Dokunmatik Fix
           pmbootstrap chroot -r -- ash -c "printf 'SUBSYSTEM==\"input\", ATTRS{phys}==\"1-0048/input0\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"0 1 0 -1 0 1\"' > /etc/udev/rules.d/00-touchscreen-dev.rules"
 
-          # Swap Fstab
-          pmbootstrap chroot -r -- ash -c "echo '/system/swapfile swap swap sw,nofail 0 0' >> /etc/fstab"
+      - name: Setup Tmate Session (Canlı Bağlantı)
+        # Build devam ederken içeri girip "neler oluyor" bakman için link verecek
+        uses: mxschmitt/action-tmate@v3
+        if: always()
 
-      - name: Build and Export Image
+      - name: Build and Export
         run: |
-          # Şifre belirleyerek kurulumu başlat
+          # Tmate terminalini kapattığında burası çalışmaya başlar
           pmbootstrap install --no-fsprogs --password=1234
           pmbootstrap export
 
-      - name: Upload Artifacts
+      - name: Upload Flashable Image
         uses: actions/upload-artifact@v4
         with:
-          name: pmos-goyavewifi-v3
+          name: pmos-goyavewifi-image
           path: /tmp/postmarketOS-export/
