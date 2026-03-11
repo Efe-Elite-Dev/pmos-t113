@@ -1,62 +1,57 @@
-name: T113 pmOS Build and Release
+name: Build postmarketOS for goyavewifi (Auto-Config)
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build_and_release:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install pmbootstrap
+      - name: Setup pmbootstrap
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip openssl zip
-          pip3 install pmbootstrap
+          pip3 install --user pmbootstrap
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Init pmbootstrap
+      - name: Initialize pmbootstrap
         run: |
-          # Wiki: Wayland kullanma, X11 tabanlı bir UI seç (LXQT veya XFCE)
-          pmbootstrap init --arch armv7 --device samsung-goyavewifi --ui lxqt
+          pmbootstrap init <<EOF
+          /home/runner/work/pmbootstrap
+          edge
+          samsung
+          goyavewifi
+          xfce4
+          EOF
 
-      - name: Apply Wiki Patches & Build
+      - name: Inject Custom Configurations (The "Efe" Special)
         run: |
-          # Wiki'deki "sprd swapped colors" ve "rotation" yamalarını içeren pmaportu çekiyoruz
-          pmbootstrap build device-samsung-goyavewifi
-          pmbootstrap build linux-samsung-goyavewifi
-          
-          # Rootfs oluşturma (Wiki notu: Şifre 1234, Hostname t113)
-          pmbootstrap install --sdcard=/tmp/samsung-t113-pmos.img --password=1234 --hostname=t113
+          # 1. Paketleri ekle
+          pmbootstrap config extra_packages postmarketos-base-downstream,soc-sprd-audio-sc8830,alsa-utils,nano,htop
 
-      - name: Create ZIP and Fix Permissions
+          # 2. X11 Rotasyon ayarını ekle (Ekran yan bakmasın diye)
+          pmbootstrap chroot -r -- ash -c "mkdir -p /etc/X11/xorg.conf.d/ && printf 'Section \"Device\"\n    Identifier \"LCD\"\n    Driver \"fbdev\"\n    Option \"Rotate\" \"CCW\"\nEndSection' > /etc/X11/xorg.conf.d/00-fbdev-rotate-CCW.conf"
+
+          # 3. PulseAudio tsched fix (Ses cızırtısı için)
+          pmbootstrap chroot -r -- sed -i 's/load-module module-udev-detect/load-module module-udev-detect tsched=0/g' /etc/pulse/default.pa
+
+          # 4. Udev Dokunmatik Fix (Matrix ayarı)
+          pmbootstrap chroot -r -- ash -c "printf 'SUBSYSTEM==\"input\", ATTRS{phys}==\"1-0048/input0\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"0 1 0 -1 0 1\"' > /etc/udev/rules.d/00-touchscreen-dev.rules"
+
+          # 5. Swap Hazırlığı (Boot sırasında devreye girmesi için fstab'a ekle)
+          pmbootstrap chroot -r -- ash -c "echo '/system/swapfile swap swap sw,nofail 0 0' >> /etc/fstab"
+
+      - name: Build and Export
         run: |
-          cd /tmp
-          zip samsung-t113-pmos.zip samsung-t113-pmos.img
+          # SD karta kuracağın için export alıyoruz
+          pmbootstrap install --no-fsprogs
+          pmbootstrap export
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Flashable Image
+        uses: actions/upload-artifact@v4
         with:
-          files: /tmp/samsung-t113-pmos.zip
-          tag_name: v${{ github.run_number }}
-          name: T113 pmOS Release - v${{ github.run_number }}
-          body: |
-            ### Samsung Galaxy Tab 3 Lite (SM-T113) pmOS İmajı
-            
-            **Wiki Bilgileri Uygulandı:**
-            - **Ekran:** X11 Rotate CCW ayarı gerekebilir (Wiki'deki config dosyasını manuel eklemeyi unutma).
-            - **WiFi:** İmaj yüklendikten sonra `/system/etc/wifi` klasörünü stock ROM'dan kopyalaman gerekebilir.
-            - **Ses:** `soc-sprd-audio-sc8830` paketi dahil edildi.
-            
-            **Giriş Bilgileri:**
-            - Kullanıcı: `pmos`
-            - Şifre: `1234`
-            - İlk açılışta LightDM'in gelmesi 3-5 dakika sürebilir, panik yapma!
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: pmos-goyavewifi-v1
+          path: /tmp/postmarketOS-export/
