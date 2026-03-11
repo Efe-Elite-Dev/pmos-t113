@@ -1,13 +1,13 @@
 name: T113 pmOS Build and Release
 
 on:
-  workflow_dispatch: # Manuel başlatma butonu
+  workflow_dispatch:
 
 jobs:
   build_and_release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Release oluşturmak için gerekli izin
+      contents: write
     
     steps:
       - name: Checkout Code
@@ -21,16 +21,19 @@ jobs:
 
       - name: Init pmbootstrap
         run: |
-          # T113 (goyavewifi) yapılandırması
-          pmbootstrap init --arch armv7 --device samsung-goyavewifi --ui xfce4
+          # Wiki: Wayland kullanma, X11 tabanlı bir UI seç (LXQT veya XFCE)
+          pmbootstrap init --arch armv7 --device samsung-goyavewifi --ui lxqt
 
-      - name: Build pmOS Image
+      - name: Apply Wiki Patches & Build
         run: |
-          # 19atlas pmaports entegrasyonu ve derleme
+          # Wiki'deki "sprd swapped colors" ve "rotation" yamalarını içeren pmaportu çekiyoruz
           pmbootstrap build device-samsung-goyavewifi
-          pmbootstrap install --sdcard=/tmp/samsung-t113-pmos.img --password=1234 --hostname=t113-linux
+          pmbootstrap build linux-samsung-goyavewifi
+          
+          # Rootfs oluşturma (Wiki notu: Şifre 1234, Hostname t113)
+          pmbootstrap install --sdcard=/tmp/samsung-t113-pmos.img --password=1234 --hostname=t113
 
-      - name: Compress Image to ZIP
+      - name: Create ZIP and Fix Permissions
         run: |
           cd /tmp
           zip samsung-t113-pmos.zip samsung-t113-pmos.img
@@ -40,12 +43,19 @@ jobs:
         with:
           files: /tmp/samsung-t113-pmos.zip
           tag_name: v${{ github.run_number }}
-          name: Release v${{ github.run_number }} - T113 pmOS Image
+          name: T113 pmOS Release - v${{ github.run_number }}
           body: |
-            Samsung Galaxy Tab 3 Lite (SM-T113) için otomatik oluşturulmuş postmarketOS imajı.
-            - Kullanıcı adı: pmos
-            - Şifre: 1234
-            - Arayüz: XFCE4
+            ### Samsung Galaxy Tab 3 Lite (SM-T113) pmOS İmajı
+            
+            **Wiki Bilgileri Uygulandı:**
+            - **Ekran:** X11 Rotate CCW ayarı gerekebilir (Wiki'deki config dosyasını manuel eklemeyi unutma).
+            - **WiFi:** İmaj yüklendikten sonra `/system/etc/wifi` klasörünü stock ROM'dan kopyalaman gerekebilir.
+            - **Ses:** `soc-sprd-audio-sc8830` paketi dahil edildi.
+            
+            **Giriş Bilgileri:**
+            - Kullanıcı: `pmos`
+            - Şifre: `1234`
+            - İlk açılışta LightDM'in gelmesi 3-5 dakika sürebilir, panik yapma!
           draft: false
           prerelease: false
         env:
