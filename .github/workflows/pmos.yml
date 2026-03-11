@@ -1,4 +1,4 @@
-name: Build postmarketOS for goyavewifi (Fix Pip & Config)
+name: Build postmarketOS for goyavewifi (Fixed GitLab Source)
 
 on:
   push:
@@ -12,23 +12,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python and Pip
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # Güncel sürüm şart
+          python-version: '3.11'
 
-      - name: Install pmbootstrap from Source
+      - name: Install pmbootstrap from NEW Source
         run: |
-          # Pip hatasını geçmek için doğrudan kaynaktan kuruyoruz
-          git clone https://gitlab.com/postmarketOS/pmbootstrap.git
+          # Yeni GitLab adresinden çekiyoruz
+          git clone https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git
           cd pmbootstrap
           pip install .
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Initialize pmbootstrap
         run: |
+          # pmbootstrap init artık çalışma dizinini ilk başta soruyor
           pmbootstrap init <<EOF
-          /home/runner/work/pmbootstrap
+          /home/runner/work/pmbootstrap_work
           edge
           samsung
           goyavewifi
@@ -37,35 +38,28 @@ jobs:
 
       - name: Inject Custom Configurations
         run: |
-          # Paketleri ekle
           pmbootstrap config extra_packages postmarketos-base-downstream,soc-sprd-audio-sc8830,alsa-utils,nano
 
-          # 1. WiFi Firmware Enjeksiyonu
-          # (Eğer reposunda 'firmware/wifi/' klasörü oluşturup dosyaları içine atarsan burası çalışır)
-          if [ -d "firmware/wifi" ]; then
-            pmbootstrap chroot -r -- mkdir -p /system/etc/wifi
-            cp firmware/wifi/* /home/runner/work/pmbootstrap/chroot_native/home/pmos/rootfs/system/etc/wifi/
-          fi
-
-          # 2. X11 Rotasyon ayarı
+          # 1. X11 Rotasyon ayarı
           pmbootstrap chroot -r -- ash -c "mkdir -p /etc/X11/xorg.conf.d/ && printf 'Section \"Device\"\n    Identifier \"LCD\"\n    Driver \"fbdev\"\n    Option \"Rotate\" \"CCW\"\nEndSection' > /etc/X11/xorg.conf.d/00-fbdev-rotate-CCW.conf"
 
-          # 3. PulseAudio tsched fix
+          # 2. PulseAudio tsched fix
           pmbootstrap chroot -r -- sed -i 's/load-module module-udev-detect/load-module module-udev-detect tsched=0/g' /etc/pulse/default.pa
 
-          # 4. Udev Dokunmatik Fix
+          # 3. Udev Dokunmatik Fix
           pmbootstrap chroot -r -- ash -c "printf 'SUBSYSTEM==\"input\", ATTRS{phys}==\"1-0048/input0\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"0 1 0 -1 0 1\"' > /etc/udev/rules.d/00-touchscreen-dev.rules"
 
-          # 5. Swap Dosyası Hazırlığı
+          # 4. Swap Fstab Kaydı
           pmbootstrap chroot -r -- ash -c "echo '/system/swapfile swap swap sw,nofail 0 0' >> /etc/fstab"
 
-      - name: Build and Export
+      - name: Build and Export Image
         run: |
+          # EMMC 8GB olduğu için export şart demiştin
           pmbootstrap install --no-fsprogs
           pmbootstrap export
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pmos-goyavewifi-final
+          name: pmos-goyavewifi-fixed
           path: /tmp/postmarketOS-export/
