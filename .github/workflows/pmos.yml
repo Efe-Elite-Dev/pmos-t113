@@ -1,0 +1,52 @@
+name: T113 pmOS Build and Release
+
+on:
+  workflow_dispatch: # Manuel başlatma butonu
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Release oluşturmak için gerekli izin
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pmbootstrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip openssl zip
+          pip3 install pmbootstrap
+
+      - name: Init pmbootstrap
+        run: |
+          # T113 (goyavewifi) yapılandırması
+          pmbootstrap init --arch armv7 --device samsung-goyavewifi --ui xfce4
+
+      - name: Build pmOS Image
+        run: |
+          # 19atlas pmaports entegrasyonu ve derleme
+          pmbootstrap build device-samsung-goyavewifi
+          pmbootstrap install --sdcard=/tmp/samsung-t113-pmos.img --password=1234 --hostname=t113-linux
+
+      - name: Compress Image to ZIP
+        run: |
+          cd /tmp
+          zip samsung-t113-pmos.zip samsung-t113-pmos.img
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: /tmp/samsung-t113-pmos.zip
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }} - T113 pmOS Image
+          body: |
+            Samsung Galaxy Tab 3 Lite (SM-T113) için otomatik oluşturulmuş postmarketOS imajı.
+            - Kullanıcı adı: pmos
+            - Şifre: 1234
+            - Arayüz: XFCE4
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
