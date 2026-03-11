@@ -1,4 +1,4 @@
-name: Build postmarketOS for goyavewifi (Auto-Config)
+name: Build postmarketOS for goyavewifi (Fix Pip & Config)
 
 on:
   push:
@@ -12,9 +12,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup pmbootstrap
+      - name: Setup Python and Pip
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # Güncel sürüm şart
+
+      - name: Install pmbootstrap from Source
         run: |
-          pip3 install --user pmbootstrap
+          # Pip hatasını geçmek için doğrudan kaynaktan kuruyoruz
+          git clone https://gitlab.com/postmarketOS/pmbootstrap.git
+          cd pmbootstrap
+          pip install .
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Initialize pmbootstrap
@@ -27,31 +35,37 @@ jobs:
           xfce4
           EOF
 
-      - name: Inject Custom Configurations (The "Efe" Special)
+      - name: Inject Custom Configurations
         run: |
-          # 1. Paketleri ekle
-          pmbootstrap config extra_packages postmarketos-base-downstream,soc-sprd-audio-sc8830,alsa-utils,nano,htop
+          # Paketleri ekle
+          pmbootstrap config extra_packages postmarketos-base-downstream,soc-sprd-audio-sc8830,alsa-utils,nano
 
-          # 2. X11 Rotasyon ayarını ekle (Ekran yan bakmasın diye)
+          # 1. WiFi Firmware Enjeksiyonu
+          # (Eğer reposunda 'firmware/wifi/' klasörü oluşturup dosyaları içine atarsan burası çalışır)
+          if [ -d "firmware/wifi" ]; then
+            pmbootstrap chroot -r -- mkdir -p /system/etc/wifi
+            cp firmware/wifi/* /home/runner/work/pmbootstrap/chroot_native/home/pmos/rootfs/system/etc/wifi/
+          fi
+
+          # 2. X11 Rotasyon ayarı
           pmbootstrap chroot -r -- ash -c "mkdir -p /etc/X11/xorg.conf.d/ && printf 'Section \"Device\"\n    Identifier \"LCD\"\n    Driver \"fbdev\"\n    Option \"Rotate\" \"CCW\"\nEndSection' > /etc/X11/xorg.conf.d/00-fbdev-rotate-CCW.conf"
 
-          # 3. PulseAudio tsched fix (Ses cızırtısı için)
+          # 3. PulseAudio tsched fix
           pmbootstrap chroot -r -- sed -i 's/load-module module-udev-detect/load-module module-udev-detect tsched=0/g' /etc/pulse/default.pa
 
-          # 4. Udev Dokunmatik Fix (Matrix ayarı)
+          # 4. Udev Dokunmatik Fix
           pmbootstrap chroot -r -- ash -c "printf 'SUBSYSTEM==\"input\", ATTRS{phys}==\"1-0048/input0\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"0 1 0 -1 0 1\"' > /etc/udev/rules.d/00-touchscreen-dev.rules"
 
-          # 5. Swap Hazırlığı (Boot sırasında devreye girmesi için fstab'a ekle)
+          # 5. Swap Dosyası Hazırlığı
           pmbootstrap chroot -r -- ash -c "echo '/system/swapfile swap swap sw,nofail 0 0' >> /etc/fstab"
 
       - name: Build and Export
         run: |
-          # SD karta kuracağın için export alıyoruz
           pmbootstrap install --no-fsprogs
           pmbootstrap export
 
-      - name: Upload Flashable Image
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pmos-goyavewifi-v1
+          name: pmos-goyavewifi-final
           path: /tmp/postmarketOS-export/
